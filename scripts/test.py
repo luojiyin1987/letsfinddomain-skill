@@ -205,10 +205,14 @@ class RepositoryTests(unittest.TestCase):
                     mock.patch.object(
                         CHECK_DOMAINS, "request_status", return_value=404) as request:
                 results = CHECK_DOMAINS.check_rdap(
-                    ["unused-name.com"], limiter=None, quiet=True)
+                    ["unused-name.com", "example.unsupported"],
+                    limiter=None,
+                    quiet=True,
+                )
 
         self.assertEqual(results, {
             "unused-name.com": {"status": "available"},
+            "example.unsupported": {"status": "unsupported"},
         })
         bootstrap_request.assert_not_called()
         request.assert_called_once()
