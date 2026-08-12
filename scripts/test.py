@@ -3,16 +3,29 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PROVIDER_DIR = ROOT / "docs" / "providers"
+
+CHECK_DOMAINS_SPEC = importlib.util.spec_from_file_location(
+    "check_domains", ROOT / "scripts" / "check-domains.py")
+CHECK_DOMAINS = importlib.util.module_from_spec(CHECK_DOMAINS_SPEC)
+WRITE_BYTECODE = sys.dont_write_bytecode
+sys.dont_write_bytecode = True
+try:
+    CHECK_DOMAINS_SPEC.loader.exec_module(CHECK_DOMAINS)
+finally:
+    sys.dont_write_bytecode = WRITE_BYTECODE
 
 
 def read(path: Path) -> str:
@@ -167,6 +180,38 @@ class RepositoryTests(unittest.TestCase):
         hook = ROOT / ".githooks" / "pre-commit"
         self.assertTrue(hook.exists())
         self.assertTrue(os.access(hook, os.X_OK), "pre-commit hook must be executable")
+
+    def test_rdap_returns_unknown_without_bootstrap_data(self):
+        with mock.patch.object(
+                CHECK_DOMAINS, "load_rdap_tlds", return_value=set()), \
+                mock.patch.object(CHECK_DOMAINS, "request_status") as request:
+            results = CHECK_DOMAINS.check_rdap(
+                ["example.com", "example.io"], limiter=None, quiet=True)
+
+        self.assertEqual(results, {
+            "example.com": {"status": "unknown"},
+            "example.io": {"status": "unknown"},
+        })
+        request.assert_not_called()
+
+    def test_rdap_uses_valid_bootstrap_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache_dir = Path(directory)
+            (cache_dir / "rdap-tlds.json").write_text(
+                '["com"]', encoding="utf-8")
+
+            with mock.patch.object(CHECK_DOMAINS, "CACHE_DIR", cache_dir), \
+                    mock.patch.object(CHECK_DOMAINS, "request_json") as bootstrap_request, \
+                    mock.patch.object(
+                        CHECK_DOMAINS, "request_status", return_value=404) as request:
+                results = CHECK_DOMAINS.check_rdap(
+                    ["unused-name.com"], limiter=None, quiet=True)
+
+        self.assertEqual(results, {
+            "unused-name.com": {"status": "available"},
+        })
+        bootstrap_request.assert_not_called()
+        request.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -977,10 +977,13 @@ def check_rdap(domains, limiter, quiet):
     outside the IANA bootstrap list are reported as unsupported, not guessed.
     """
     rdap_tlds = load_rdap_tlds(quiet)
+    if not rdap_tlds:
+        return {domain: {"status": "unknown"} for domain in domains}
+
     results = {}
     for domain in domains:
         tld = domain.rsplit(".", 1)[-1].lower()
-        if rdap_tlds and tld not in rdap_tlds:
+        if tld not in rdap_tlds:
             results[domain] = {"status": "unsupported"}
             continue
         status = request_status(RDAP_QUERY_URL.format(domain=domain),
